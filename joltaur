@@ -1,0 +1,141 @@
+#!/bin/bash
+
+set -e
+
+VERSION="1"
+
+GREEN=$(tput setaf 2)
+BLUE=$(tput setaf 4)
+NC=$(tput sgr0) # No Color
+
+no_color() {
+    GREEN=""
+    BLUE=""
+    NC=""
+}
+
+usage() {
+    echo "Usage: joltaur <command> [options]"
+    echo
+    echo "Commands:"
+    echo "  search <package>   Search for a package on the AUR"
+    echo "  download <package> Download a package from the AUR"
+    echo "  install <package>  Download and install a package from the AUR"
+    echo "  update             Update a package from the AUR (run in package directory)"
+    echo "  help               Show this help message"
+    echo "  version            Show the version of this script"
+    exit 1
+}
+
+is_installed() {
+    echo "Checking if $1 is installed"
+    pacman -Qi "$1" &> /dev/null
+    local exit_code=$?
+    return $exit_code
+}
+
+search_package() {
+    if ! command -v jq &> /dev/null; then
+        echo "jq is not installed. Please install it to use the search feature."
+        exit 1
+    fi
+
+    if [[ -z "$1" ]]; then
+        echo "Please specify a package to search for."
+        exit 1
+    fi
+
+    local package=$1
+    local url="https://aur.archlinux.org/rpc/?v=5&type=search&arg=${package}"
+
+    curl -s "$url" | jq -r '.results[] | "\(.Name)\n\(.Version)\n\(.Description)"' |
+    while read -r name; read -r version; read -r description; do
+        if is_installed "$name"; then
+            echo -e "${GREEN}${name} - ${version} ${BLUE}[installed]${NC}"
+        else
+            echo -e "${GREEN}${name} - ${version}${NC}"
+        fi
+        echo -e "  ${description}${NC}"
+    done
+}
+
+
+download_package() {
+    if ! command -v git &> /dev/null; then
+        echo "git is not installed. Please install it to use the download feature."
+        exit 1
+    fi
+
+    if [[ -z "$1" ]]; then
+        echo "Please specify a package to download."
+        exit 1
+    fi
+
+    local package=$1
+    local url="https://aur.archlinux.org/${package}.git"
+
+    git clone "$url"
+}
+
+install_package() {
+    download_package "$@"
+    cd "$1"
+    makepkg -si
+}
+
+update_package() {
+    if ! command -v git &> /dev/null; then
+        echo "git is not installed. Please install it to use the update feature."
+        exit 1
+    fi
+
+    if [ ! -d ".git" ]; then
+        echo "This does not appear to be a git repository."
+        echo "Please run this command from the package's directory."
+        exit 1
+    fi
+
+    echo "Updating package..."
+    git pull
+}
+
+main() {
+    if [[ $1 == "-s" || $1 == "--script" ]]; then
+        no_color
+        shift
+    fi
+
+    if [[ $# -eq 0 ]]; then
+        usage
+    fi
+
+    local command=$1
+    shift
+
+    case $command in
+        search)
+            search_package "$@"
+            ;;
+        download)
+            download_package "$@"
+            ;;
+        install)
+            install_package "$@"
+            ;;
+        update)
+            update_package "$@"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -v|--version)
+            echo "joltaur version $VERSION"
+            exit 0
+            ;;
+        *)
+            usage
+            ;;
+    esac
+}
+
+main "$@"
