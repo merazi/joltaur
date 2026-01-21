@@ -27,13 +27,6 @@ usage() {
     exit 1
 }
 
-is_installed() {
-    echo "Checking if $1 is installed"
-    pacman -Qi "$1" &> /dev/null
-    local exit_code=$?
-    return $exit_code
-}
-
 search_package() {
     if ! command -v jq &> /dev/null; then
         echo "jq is not installed. Please install it to use the search feature."
@@ -48,9 +41,11 @@ search_package() {
     local package=$1
     local url="https://aur.archlinux.org/rpc/?v=5&type=search&arg=${package}"
 
+    local installed_packages=$(pacman -Q)
+
     curl -s "$url" | jq -r '.results[] | "\(.Name)\n\(.Version)\n\(.Description)"' |
     while read -r name; read -r version; read -r description; do
-        if is_installed "$name"; then
+        if echo "$installed_packages" | grep -q "^$name "; then
             echo -e "${GREEN}${name} - ${version} ${BLUE}[installed]${NC}"
         else
             echo -e "${GREEN}${name} - ${version}${NC}"
@@ -77,9 +72,18 @@ download_package() {
     git clone "$url"
 }
 
+check_command() {
+    if ! command -v "$1" &> /dev/null; then
+        echo "$1 is not installed. Please install it to use the install feature."
+        exit 1
+    fi
+}
+
 install_package() {
     download_package "$@"
     cd "$1"
+    check_command makepkg
+    check_command namcap
     makepkg -si
 }
 
