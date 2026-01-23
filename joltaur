@@ -18,12 +18,12 @@ usage() {
     echo "Usage: joltaur <command> [options]"
     echo
     echo "Commands:"
-    echo "  search <package>   Search for a package on the AUR"
-    echo "  download <package> Download a package from the AUR"
-    echo "  install <package>  Download and install a package from the AUR"
-    echo "  update             Update a package from the AUR (run in package directory)"
-    echo "  help               Show this help message"
-    echo "  version            Show the version of this script"
+    echo "  search [-d|--description] <package>   Search for a package on the AUR"
+    echo "  download <package>                    Download a package from the AUR"
+    echo "  install <package>                     Download and install a package from the AUR"
+    echo "  update                                Update a package from the AUR (run in package directory)"
+    echo "  help                                  Show this help message"
+    echo "  version                               Show the version of this script"
     exit 1
 }
 
@@ -33,24 +33,65 @@ search_package() {
         exit 1
     fi
 
+    local search_description=false
+    if [[ "$1" == "-d" || "$1" == "--description" ]]; then
+        search_description=true
+        shift
+    fi
+
     if [[ -z "$1" ]]; then
         echo "Please specify a package to search for."
         exit 1
     fi
 
-    local package=$1
-    local url="https://aur.archlinux.org/rpc/?v=5&type=search&arg=${package}"
+    local search_terms=("$@")
+    local primary_search_term=""
+    local shortest_length=9999
+
+    for term in "${search_terms[@]}"; do
+        if [ ${#term} -lt $shortest_length ]; then
+            shortest_length=${#term}
+            primary_search_term=$term
+        fi
+    done
+
+    local other_search_terms=()
+    for term in "${search_terms[@]}"; do
+        if [ "$term" != "$primary_search_term" ]; then
+            other_search_terms+=("$term")
+        fi
+    done
+
+    local url="https://aur.archlinux.org/rpc/?v=5&type=search&arg=${primary_search_term}"
 
     local installed_packages=$(pacman -Q)
 
     curl -s "$url" | jq -r '.results[] | "\(.Name)\n\(.Version)\n\(.Description)"' |
     while read -r name; read -r version; read -r description; do
-        if echo "$installed_packages" | grep -q "^$name "; then
-            echo -e "${GREEN}${name} - ${version} ${BLUE}[installed]${NC}"
-        else
-            echo -e "${GREEN}${name} - ${version}${NC}"
+        
+        local all_terms_match=true
+        for term in "${other_search_terms[@]}"; do
+            if [ "$search_description" = true ]; then
+                if [[ ! "$name" == *"$term"* && ! "$description" == *"$term"* ]]; then
+                    all_terms_match=false
+                    break
+                fi
+            else
+                if [[ ! "$name" == *"$term"* ]]; then
+                    all_terms_match=false
+                    break
+                fi
+            fi
+        done
+
+        if [ "$all_terms_match" = true ]; then
+            if echo "$installed_packages" | grep -q "^$name "; then
+                echo -e "${GREEN}${name} - ${version} ${BLUE}[installed]${NC}"
+            else
+                echo -e "${GREEN}${name} - ${version}${NC}"
+            fi
+            echo -e "  ${description}${NC}"
         fi
-        echo -e "  ${description}${NC}"
     done
 }
 
